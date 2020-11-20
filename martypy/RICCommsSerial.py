@@ -56,7 +56,8 @@ class RICCommsSerial(RICCommsBase):
             openParams: dict containing params used to open the connection, may include
                         "serialPort", 
                         "serialBaud",
-                        "ifType" == "plain" or "overascii"
+                        "ifType" == "plain" or "overascii",
+                        "asciiEscapes"
         Returns:
             True if open succeeded or already open
         Throws:
@@ -72,6 +73,7 @@ class RICCommsSerial(RICCommsBase):
         self.overAscii = openParams.get("ifType", "plain") != "plain"
         if self.overAscii:
             self.protocolOverAscii = ProtocolOverAscii()
+        hdlcAsciiEscapes = openParams.get("asciiEscapes", False)
 
         # Validate
         if len(serialPort) == 0:
@@ -88,6 +90,9 @@ class RICCommsSerial(RICCommsBase):
         except Exception as excp:
             raise MartyConnectException("Serial port problem") from excp
 
+        # Configure HDLC
+        self._hdlc.setAsciiEscapes(hdlcAsciiEscapes)
+        
         # Start receive loop
         self.serialThreadEnabled = True
         self.serialReaderThread = Thread(target=self._serialRxLoop)

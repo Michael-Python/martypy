@@ -91,7 +91,7 @@ class ClientMV2(ClientGeneric):
         self.ricIF.setLogLineCB(self._logDebugMsg)
 
     def start(self):
-        self.ricSystemInfo = self.ricIF.cmdRICRESTSync("v")
+        self.ricSystemInfo = self.ricIF.cmdRICRESTURLSync("v")
         self._updateHwElemsInfo()
         self._initComplete = True
 
@@ -285,7 +285,7 @@ class ClientMV2(ClientGeneric):
         return self.ricIF.cmdRICRESTRslt(f"calibrate/setFlag/0")
 
     def is_calibrated(self) -> bool:
-        result = self.ricIF.cmdRICRESTSync("calibrate")
+        result = self.ricIF.cmdRICRESTURLSync("calibrate")
         if result.get("rslt", "") == "ok":
             return result.get("calDone", 0) != 0
         return False
@@ -337,13 +337,13 @@ class ClientMV2(ClientGeneric):
         return self.ricIF.cmdRICRESTRslt(f"friendlyname/{name}")
 
     def get_marty_name(self) -> str:
-        result = self.ricIF.cmdRICRESTSync("friendlyname")
+        result = self.ricIF.cmdRICRESTURLSync("friendlyname")
         if result.get("rslt", "") == "ok":
             return result.get("friendlyName", "Marty")
         return "Marty"
 
     def is_marty_name_set(self) -> bool:
-        result = self.ricIF.cmdRICRESTSync("friendlyname")
+        result = self.ricIF.cmdRICRESTURLSync("friendlyname")
         if result.get("rslt", "") == "ok":
             return result.get("friendlyNameIsSet", 0) != 0
         return False
@@ -356,7 +356,7 @@ class ClientMV2(ClientGeneric):
         self.ricIF.sendRICRESTURL(ricRestCmd)
 
     def send_ric_rest_cmd_sync(self, ricRestCmd: str) -> Dict:
-        return self.ricIF.cmdRICRESTSync(ricRestCmd)
+        return self.ricIF.cmdRICRESTURLSync(ricRestCmd)
 
     def register_logging_callback(self, loggingCallback: Callable[[str],None]) -> None:
         self.loggingCallback = loggingCallback
@@ -399,7 +399,7 @@ class ClientMV2(ClientGeneric):
             self.lastSubscribedMsgTime = time.time()
 
     def _updateHwElemsInfo(self):
-        hwElemsInfo = self.ricIF.cmdRICRESTSync("hwstatus")
+        hwElemsInfo = self.ricIF.cmdRICRESTURLSync("hwstatus")
         if hwElemsInfo.get("rslt", "") == "ok":
             self.ricHwElemsList = hwElemsInfo.get("hw", [])
             self.ricHwElemsInfoByIDNo = {}

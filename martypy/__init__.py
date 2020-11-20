@@ -5,5 +5,3 @@ from .ClientMV2 import ClientMV2
 from .RICCommsSerial import RICCommsSerial
 from .RICCommsWiFi import RICCommsWiFi
 from .Exceptions import *
-
-__version__ = '2.0'

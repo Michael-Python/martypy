@@ -3,7 +3,7 @@ RICProtocols
 '''
 import json
 import logging
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -130,11 +130,14 @@ class RICProtocols:
             self.ricSerialMsgNum = 1
         return cmdFrame, msgNum
 
-    def encodeRICRESTCmdFrame(self, cmdStr: str) -> Tuple[bytes, int]:
+    def encodeRICRESTCmdFrame(self, cmdStr: Union[str,bytes]) -> Tuple[bytes, int]:
         # RICSerial command frame
         msgNum = self.ricSerialMsgNum
         cmdFrame = bytearray([msgNum, self.MSG_TYPE_COMMAND + self.PROTOCOL_RICREST, self.RICREST_ELEM_CODE_CMD_FRAME])
-        cmdFrame += cmdStr.encode() + b"\0"
+        if type(cmdStr) is str:
+            cmdFrame += cmdStr.encode() + b"\0"
+        else:
+            cmdFrame += cmdStr + b"\0"
         self.ricSerialMsgNum += 1
         if self.ricSerialMsgNum > 255:
             self.ricSerialMsgNum = 1
@@ -167,6 +170,7 @@ class RICProtocols:
                 msg.setRESTType(restElemCode)
                 if restElemCode == self.RICREST_ELEM_CODE_URL or restElemCode == self.RICREST_ELEM_CODE_JSON:
                     msg.setPayload(True, fr[3:].decode('ascii'))
+                    msg.payload = msg.payload.rstrip('\x00')
                 else:
                     msg.setPayload(False, fr[3:])
                 # logging.debug(f"RICREST {DIRECTION_STRS[dirn]} msgNum {msgNum} {fr[3:].decode('ascii')}")

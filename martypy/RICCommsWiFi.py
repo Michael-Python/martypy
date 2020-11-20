@@ -50,7 +50,8 @@ class RICCommsWiFi(RICCommsBase):
             openParams: dict containing params used to open the connection, may include
                         "ipAddrOrHostname", 
                         "ipPort",
-                        "wsPath"
+                        "wsPath",
+                        "asciiEscapes"
         Returns:
             True if open succeeded or already open
         Throws:
@@ -64,6 +65,7 @@ class RICCommsWiFi(RICCommsBase):
         ipAddrOrHostname = openParams.get("ipAddrOrHostname", "")
         ipPort = openParams.get("ipPort", 80)
         wsPath = openParams.get("wsPath", "/ws")
+        hdlcAsciiEscapes = openParams.get("asciiEscapes", False)
 
         # Validate
         if len(ipAddrOrHostname) == 0:
@@ -78,6 +80,9 @@ class RICCommsWiFi(RICCommsBase):
             self.webSocket.open()
         except Exception as excp:
             raise MartyConnectException("Websocket problem") from excp
+
+        # Configure HDLC
+        self._hdlc.setAsciiEscapes(hdlcAsciiEscapes)
 
         # Start receive loop
         self.webSocketThreadEnabled = True
@@ -115,7 +120,7 @@ class RICCommsWiFi(RICCommsBase):
         Throws:
             MartyConnectException: if the connection has an error
         '''
-        # logger.debug(f"Sending to IF len {len(bytesToSend)} {str(bytesToSend)}")
+        # logger.debug(f"WiFi send len {len(data)} {''.join('{:02x}'.format(x) for x in data)}")
         hdlcEncoded = self._hdlc.encode(data)
         try:
             self._sendBytesToIF(hdlcEncoded)

@@ -2,7 +2,7 @@
 RICInterface
 '''
 from __future__ import annotations
-from typing import Callable, Dict
+from typing import Callable, Dict, Union
 import time
 import threading
 import logging
@@ -32,7 +32,7 @@ class RICInterface:
         self.statsMatched = 0
         self.statsUnMatched = 0
         self.statsUnNumbered = 0
-        self.msgRespTimeoutSecs = 1.5
+        self.msgRespTimeoutSecs = 2
 
     def __del__(self) -> None:
         self.commsHandler.close()
@@ -113,7 +113,7 @@ class RICInterface:
         self.commsHandler.send(ricRestMsg)
         return True
 
-    def cmdRICRESTSync(self, msg: str) -> Dict:
+    def cmdRICRESTURLSync(self, msg: str) -> Dict:
         '''
         Send RICREST URL message and wait for response
         Args:
@@ -142,7 +142,7 @@ class RICInterface:
                         if respStr:
                             respObj = json.loads(respStr.payload.rstrip('\0'))
                         debugMsgRespTime = self._msgsOutstanding[msgNum].get("respTime", 0)
-                        # logger.debug(f"msgNum {msgNum} msg {msg} resp {json.dumps(respObj)} sendTime {msgSendTime} respTime {debugMsgRespTime}")
+                        # logger.debug(f"sendRICRESTURLSync msgNum {msgNum} msg {msg} resp {json.dumps(respObj)} sendTime {msgSendTime} respTime {debugMsgRespTime}")
                         return respObj
                     except Exception as excp:
                         logger.debug(f"msgNum {msgNum} response is not JSON {excp}", )
@@ -157,14 +157,14 @@ class RICInterface:
         Returns:
             Response turned into a dictionary (from JSON)
         '''
-        response = self.cmdRICRESTSync(msg)
+        response = self.cmdRICRESTURLSync(msg)
         return response.get("rslt", "") == "ok"
 
-    def sendRICRESTCmdFrame(self, msg: bytes) -> bool:
+    def sendRICRESTCmdFrame(self, msg: Union[str,bytes]) -> bool:
         '''
         Send RICREST command frame message
         Args:
-            msg: string containing command
+            msg: string or bytes containing command frame
         Returns:
             True if message sent
         '''
@@ -174,6 +174,42 @@ class RICInterface:
             self._msgsOutstanding[msgNum] = {"timeSent": time.time()}
         self.commsHandler.send(ricRestMsg)
         return True
+
+    def sendRICRESTCmdFrameSync(self, msg: Union[str,bytes]) -> Dict:
+        '''
+        Send RICREST command frame message and wait for response
+        Args:
+            msg: string or bytes containing command frame
+        Returns:
+            Response turned into a dictionary (from JSON)
+        '''
+        ricRestMsg, msgNum = self.ricProtocols.encodeRICRESTCmdFrame(msg)
+        logger.debug(f"sendRICRESTCmdFrameSync msgNum {msgNum} len {len(ricRestMsg)} msg {msg}")
+        msgSendTime = time.time()
+        with self._msgsOutstandingLock:
+            self._msgsOutstanding[msgNum] = {"timeSent": msgSendTime,"awaited":True}
+        self.commsHandler.send(ricRestMsg)
+        # Wait for result
+        while time.time() < msgSendTime + self.msgRespTimeoutSecs:
+            with self._msgsOutstandingLock:
+                # Should be an outstanding message - if not there's a problem
+                if msgNum not in self._msgsOutstanding:
+                    return {"rslt":"failResponse"}
+                # Check if response received
+                if self._msgsOutstanding[msgNum].get("respValid", False):
+                    try:
+                        # Get response
+                        respStr = self._msgsOutstanding[msgNum].get("resp", None)
+                        respObj = {}
+                        if respStr:
+                            respObj = json.loads(respStr.payload.rstrip('\0'))
+                        debugMsgRespTime = self._msgsOutstanding[msgNum].get("respTime", 0)
+                        # logger.debug(f"sendRICRESTCmdFrameSync msgNum {msgNum} msg {msg} resp {json.dumps(respObj)} sendTime {msgSendTime} respTime {debugMsgRespTime}")
+                        return respObj
+                    except Exception as excp:
+                        logger.debug(f"msgNum {msgNum} response is not JSON {excp}", )
+            time.sleep(0.01)
+        return {"rslt":"failTimeout"}
 
     def sendRICRESTFileBlock(self, data: bytes) -> bool:
         '''
@@ -275,6 +311,7 @@ class RICInterface:
     def _onRxFrameCB(self, frame: bytes) -> None:
         # logger.debug(f"_onRxFrameCB Rx len {len(frame)}")
         decodedMsg = self.ricProtocols.decodeRICFrame(frame)
+        doRxCallback = True
         if decodedMsg.msgNum != 0:
             # logger.debug(f"_onRxFrameCB msgNum {decodedMsg.msgNum} {decodedMsg.payload}")
             isUnmatched = False
@@ -294,9 +331,10 @@ class RICInterface:
                     self.statsUnMatched += 1
             if isUnmatched:
                 logger.debug(f"Unmatched msgNum {decodedMsg.msgNum}")
+            doRxCallback = isUnmatched
         else:
             self.statsUnNumbered += 1
-        if self.decodedMsgCB is not None:
+        if doRxCallback and self.decodedMsgCB is not None:
             self.decodedMsgCB(decodedMsg, self)
 
     def _onLogLineCB(self, line: str) -> None:
