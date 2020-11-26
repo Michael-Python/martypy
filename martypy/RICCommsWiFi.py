@@ -33,7 +33,10 @@ class RICCommsWiFi(RICCommsBase):
         '''
         Destructor
         '''
+        try:
         self.close()
+        except:
+            pass
 
     def isOpen(self) -> bool:
         '''
@@ -62,6 +65,8 @@ class RICCommsWiFi(RICCommsBase):
             return True
 
         # Get params
+        self.commsParams.conn = openParams
+        self.commsParams.fileTransfer = {"fileBlockMax": 5000, "fileXferSync": False}
         ipAddrOrHostname = openParams.get("ipAddrOrHostname", "")
         ipPort = openParams.get("ipPort", 80)
         wsPath = openParams.get("wsPath", "/ws")

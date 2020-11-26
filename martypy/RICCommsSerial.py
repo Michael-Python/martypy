@@ -37,7 +37,10 @@ class RICCommsSerial(RICCommsBase):
         '''
         Destructor
         '''
+        try:
         self.close()
+        except:
+            pass
 
     def isOpen(self) -> bool:
         '''
@@ -68,6 +71,8 @@ class RICCommsSerial(RICCommsBase):
             return True
 
         # Get params
+        self.commsParams.conn = openParams
+        self.commsParams.fileTransfer = {"fileBlockMax": 5000, "fileXferSync": False}
         serialPort = openParams.get("serialPort", "")
         serialBaud = openParams.get("serialBaud", 115200)
         self.overAscii = openParams.get("ifType", "plain") != "plain"

@@ -130,14 +130,26 @@ class RICProtocols:
             self.ricSerialMsgNum = 1
         return cmdFrame, msgNum
 
-    def encodeRICRESTCmdFrame(self, cmdStr: Union[str,bytes]) -> Tuple[bytes, int]:
+    def encodeRICRESTCmdFrame(self, cmdStr: Union[str,bytes], payload: Union[bytes, str] = None) -> Tuple[bytes, int]:
         # RICSerial command frame
         msgNum = self.ricSerialMsgNum
         cmdFrame = bytearray([msgNum, self.MSG_TYPE_COMMAND + self.PROTOCOL_RICREST, self.RICREST_ELEM_CODE_CMD_FRAME])
+        if payload is not None:
+            if type(payload) is str:
+                payload = payload.encode()
         if type(cmdStr) is str:
-            cmdFrame += cmdStr.encode() + b"\0"
+                cmdFrame += cmdStr.encode() + b"\0" + payload
+            else:
+                cmdFrame += cmdStr + b"\0" + payload
         else:
-            cmdFrame += cmdStr + b"\0"
+            if type(cmdStr) is str:
+                cmdFrame += cmdStr.encode()
+                if cmdFrame[-1] != b"\0":
+                    cmdFrame = cmdFrame + b"\0"
+        else:
+                cmdFrame += cmdStr
+                if cmdFrame[-1] != b"\0":
+                    cmdFrame = cmdFrame + b"\0"
         self.ricSerialMsgNum += 1
         if self.ricSerialMsgNum > 255:
             self.ricSerialMsgNum = 1

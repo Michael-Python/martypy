@@ -10,6 +10,7 @@ import json
 from .RICProtocols import DecodedMsg, RICProtocols
 from .RICCommsBase import RICCommsBase
 from .ValueAverager import ValueAverager
+from .Exceptions import MartyTransferException
 
 logger = logging.getLogger(__name__)
 
@@ -160,31 +161,33 @@ class RICInterface:
         response = self.cmdRICRESTURLSync(msg)
         return response.get("rslt", "") == "ok"
 
-    def sendRICRESTCmdFrame(self, msg: Union[str,bytes]) -> bool:
+    def sendRICRESTCmdFrame(self, msg: Union[str,bytes], payload: Union[bytes, str] = None) -> bool:
         '''
         Send RICREST command frame message
         Args:
             msg: string or bytes containing command frame
+            payload: optional payload
         Returns:
             True if message sent
         '''
-        ricRestMsg, msgNum = self.ricProtocols.encodeRICRESTCmdFrame(msg)
+        ricRestMsg, msgNum = self.ricProtocols.encodeRICRESTCmdFrame(msg, payload)
         # logger.debug(f"sendRICRESTCmdFrame msgNum {msgNum} len {len(ricRestMsg)} msg {msg}")
         with self._msgsOutstandingLock:
             self._msgsOutstanding[msgNum] = {"timeSent": time.time()}
         self.commsHandler.send(ricRestMsg)
         return True
 
-    def sendRICRESTCmdFrameSync(self, msg: Union[str,bytes]) -> Dict:
+    def sendRICRESTCmdFrameSync(self, msg: Union[str,bytes], payload: Union[bytes, str] = None) -> Dict:
         '''
         Send RICREST command frame message and wait for response
         Args:
             msg: string or bytes containing command frame
+            payload: optional payload
         Returns:
             Response turned into a dictionary (from JSON)
         '''
-        ricRestMsg, msgNum = self.ricProtocols.encodeRICRESTCmdFrame(msg)
-        logger.debug(f"sendRICRESTCmdFrameSync msgNum {msgNum} len {len(ricRestMsg)} msg {msg}")
+        ricRestMsg, msgNum = self.ricProtocols.encodeRICRESTCmdFrame(msg, payload)
+        # logger.debug(f"sendRICRESTCmdFrameSync msgNum {msgNum} len {len(ricRestMsg)} msg {msg}")
         msgSendTime = time.time()
         with self._msgsOutstandingLock:
             self._msgsOutstanding[msgNum] = {"timeSent": msgSendTime,"awaited":True}
@@ -251,14 +254,19 @@ class RICInterface:
         for i in range(numMsgs):
             self.commsHandler.send(dataBlock)
 
-    def sendFile(self, filename: str, isEspFirmware: bool) -> None:
+    def sendFile(self, filename: str, fileDest: str, reqStr: str = '', 
+                progressCB: Callable[[int, int, RICInterface], None] = None) -> None:
         '''
         Send a file (from the file system) over serial connection
         Args:
             filename: name of file to send
-            isEspFirmware: False for a normal file, True for new RIC firmware
+            fileDest: "fs" to upload to file system, "ricfw" for new RIC firmware
+            reqStr: API request used for transfer, if left blank this is inferred from fileDest, other
+                    values include "fileupload" and "espfwupdate" - see RIC documentation for API
+            progressCB: callback used to indicate how file send is progressing, callable takes two params
+                    which are bytesSent and totalBytes
         Returns:
-            None
+            True if operation succeeded
         Throws:
             OSError: operating system exceptions
             May throw other exceptions so include a general exception handler
@@ -272,33 +280,36 @@ class RICInterface:
             # logger.debug(f"File {filename} is {binaryImageLen} bytes long")
 
             # Frames follow the approach used in the web interface start, block..., end
-            time.sleep(1.0)
-            fileType = "fs"
-            uploadType = "fileupload"
-            if isEspFirmware:
-                fileType = "ricfw"
-                uploadType = "espFwUpdate"
-            self.sendRICRESTCmdFrame('{' + f'"cmdName":"ufStart","reqStr":"{uploadType}","fileType":"{fileType}",' + \
-                            f'fileName":"{filename}","fileLen":{str(binaryImageLen)}' + '}\0')
-            time.sleep(1.0)
+            if reqStr == '':
+                reqStr = 'espfwupdate' if fileDest == "ricfw" else 'fileupload'
+            resp = self.sendRICRESTCmdFrameSync('{' + f'"cmdName":"ufStart","reqStr":"{reqStr}","fileType":"{fileDest}",' + \
+                            f'"fileName":"{filename}","fileLen":{str(binaryImageLen)}' + '}\0')
+            if resp.get("rslt","") != "ok":
+                raise MartyTransferException("File transfer start not acknowledged")
 
             # Split the file into blocks
-            blockMaxSize = 200
+            blockMaxSize = self.commsHandler.commsParams.fileTransfer.get("fileBlockMax",5000)
             numBlocks = binaryImageLen//blockMaxSize + (0 if (binaryImageLen % blockMaxSize == 0) else 1)
             # logger.debug(f"Sending file in {numBlocks} blocks of {blockMaxSize} max bytes")
             for i in range(numBlocks):
                 blockStart = i*blockMaxSize
                 blockToSend = binaryImage[blockStart:blockStart+blockMaxSize]
                 self.sendRICRESTFileBlock(blockStart.to_bytes(4, 'big') + blockToSend)
+                # Progress
+                if progressCB:
+                    progressCB(blockStart, binaryImageLen, self)
+                # TODO remove delay?
                 time.sleep(0.01)
                 # if i % 10 == 9:
                 #     logger.debug(f"SendFile Progress {i * 100 / numBlocks:0.1f}%")
 
-            # End frame            
-            time.sleep(1.0)
-            self.sendRICRESTCmdFrame('{' + f'"cmdName":"ufEnd","reqStr":"fileupload","fileType":"{fileType}",' + \
+            # End frame
+            resp = self.sendRICRESTCmdFrameSync('{' + f'"cmdName":"ufEnd","reqStr":"fileupload","fileType":"{fileDest}",' + \
                             f'"fileName":"{filename}","fileLen":{str(binaryImageLen)},' + \
                             f'"blockCount":{str(numBlocks)}' + '}\0')
+            if resp.get("rslt","") != "ok":
+                return False
+            return True
 
     def getStats(self) -> Dict:
         return {
